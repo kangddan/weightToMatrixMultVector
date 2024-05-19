@@ -1,6 +1,13 @@
 import c4d
 import sys
 
+if sys.version_info.major == 2:
+    class dict(dict):
+        def items(self):
+            return super(dict, self).iteritems()
+    range = xrange
+    
+# -----------------------------------------------
 def deleteSkinData(obj):
 
     for tag in obj.GetTags():
@@ -15,12 +22,7 @@ def deleteSkinData(obj):
             doc.AddUndo(c4d.UNDOTYPE_DELETE, child)
             child.Remove()
 
-# -----------------------------------------------
-if sys.version_info.major == 2:
-    class dict(dict):
-        def items(self):
-            return super(dict, self).iteritems()
-    range = xrange
+
 # -----------------------------------------------
 def getAllObjs(obj=None, objs=None):
     if objs is None: objs = []
@@ -35,12 +37,22 @@ def getAllObjs(obj=None, objs=None):
 
 
 def getPoints(obj):
+    cache = obj.GetDeformCache()
+    if cache is None:
+        return [index
+        for index, _ in enumerate(obj.GetPointS().GetAll(obj.GetPointCount()))]
+        
     return [index
-    for index, _ in enumerate(obj.GetPointS().GetAll(obj.GetPointCount()))]
+           for index, _ in enumerate(cache.GetPointS().GetAll(cache.GetPointCount()))]
 
 def getPointsPos(obj, points):
-    return [obj.GetPoint(point) * obj.GetMg()
-            for point, _ in enumerate(points)]
+    cache = obj.GetDeformCache()
+    if cache is None:
+        return [obj.GetPoint(point) * obj.GetMg()
+                for point, _ in enumerate(points)]
+                
+    return [cache.GetPoint(point) * obj.GetMg()
+                for point, _ in enumerate(points)]
 
 def getJointsData(obj, points):
 
@@ -62,11 +74,8 @@ def getJointsData(obj, points):
     return jointGuids, weightData
 
 def addXpresso(obj):
-    doc.StartUndo()
-    deleteSkinData(obj)
     xpTag = obj.MakeTag(1001149)
     doc.AddUndo(c4d.UNDOTYPE_NEW, xpTag)
-    doc.EndUndo()
     master = xpTag.GetNodeMaster()
     root = master.GetRoot()
     return master, root
@@ -77,15 +86,16 @@ def main():
         return
 
     allObjs = getAllObjs()
-
+    doc.StartUndo()
     for obj in baseObjs:
-
+        doc.AddUndo(c4d.UNDOTYPE_CHANGE, obj)
         points              = getPoints(obj)
         jointGuids, weights = getJointsData(obj, points)
         pointPoss           = getPointsPos(obj, points)
         # ---------------------------------------------------------------
         joints = [_obj for guid in jointGuids for _obj in allObjs if _obj.GetGUID() == guid]
-
+        
+        deleteSkinData(obj)
         # create xptag
         master, root = addXpresso(obj)
         objNode = master.CreateNode(root, c4d.ID_OPERATOR_OBJECT, x=100, y=400)
@@ -141,6 +151,7 @@ def main():
 
                 objNode.GetOutPort(0).Connect(pointNode.GetInPort(0))
                 # -------------------------------------
+    doc.EndUndo()
     c4d.EventAdd()
 
 if __name__ == '__main__':
